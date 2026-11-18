@@ -32,3 +32,16 @@ BT_MAX_HOLD_MIN = 1440         # give up after a day; None = hold until it rever
 
 # The size of arb-scanner's normal pegged quotes (bid/ask columns).
 QUOTE_SIZE_USD = 100.0
+
+# ---- Kraken candles (fetch.py, pairs.py) ---------------------------------------
+# stat-arb's own database for exchange history (git-ignored like every *.sqlite).
+CANDLES_PATH = "candles.sqlite"
+# ETHXBT is the market you'd actually trade (ETH priced in BTC, one order per swap);
+# XBTUSD and ETHUSD let pairs.py estimate the hedge ratio from the two USD prices.
+FETCH_PAIRS = ["ETHXBT", "XBTUSD", "ETHUSD"]
+FETCH_INTERVALS = [60, 240, 1440]     # hourly (30 days), 4-hour (120 days), daily (~2 years)
+FETCH_PAUSE_S = 1.5                   # seconds between API calls
+
+# Your Kraken fees, % per order (maker / taker; reduced tier 0.22 / 0.38).
+KRAKEN_MAKER_PCT = 0.30
+KRAKEN_TAKER_PCT = 0.60

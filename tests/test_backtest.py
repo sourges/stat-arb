@@ -175,6 +175,20 @@ class TestSizes(unittest.TestCase):
         self.assertEqual(run(bars(MIDS, depth=(1000.0, 0.5)), size_usd=2500.0), [])
 
 
+class TestWindow(unittest.TestCase):
+    def test_parse_local_is_new_york_time(self):
+        self.assertEqual(bt.parse_local("2026-11-17"), pd.Timestamp("2026-11-17 05:00", tz="UTC"))
+        self.assertEqual(bt.parse_local("2026-11-17 20:31"), pd.Timestamp("2026-11-18 01:31", tz="UTC"))
+        self.assertIsNone(bt.parse_local(None))
+
+    def test_window_keeps_since_drops_until(self):
+        b = bars(MIDS)                                   # minutes 00:00 .. 00:08 UTC
+        w = bt.window_bars(b, pd.Timestamp("2026-11-10 00:02", tz="UTC"),
+                           pd.Timestamp("2026-11-10 00:05", tz="UTC"))
+        self.assertEqual([t.minute for t in w.index], [2, 3, 4])
+        self.assertEqual(len(bt.window_bars(b)), 9)
+
+
 class TestSummary(unittest.TestCase):
     def test_totals(self):
         trades = run(bars(MIDS)) + run(bars(FLAT_AFTER_DROP))
@@ -252,6 +266,13 @@ class TestCommandLine(unittest.TestCase):
         out = self.out("--sweep")
         self.assertIn("SWEEP", out)
         self.assertIn("entry 2.5", out)
+
+    def test_since_and_until_window(self):
+        out = self.out("--window", "3", "--entry", "1", "--since", "2026-11-10",
+                       "--until", "2026-11-11")
+        self.assertIn("window: 2026-11-10 -> 2026-11-11 (local time)", out)
+        # the test snapshot starts at ts 1_000_020 (Jan 1970), so this window is empty
+        self.assertIn("no quotes for USDT/USDC on A", out)
 
     def test_unknown_pool_lists_the_real_ones(self):
         buf = io.StringIO()

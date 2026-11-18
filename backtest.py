@@ -29,6 +29,12 @@ Run:
   python backtest.py --pair USDT/USDC --pool univ3-100
   python backtest.py --window 240 --entry 2 --exit 0 --size 1000
   python backtest.py --sweep                            try several windows x entries
+  python backtest.py --since 2026-11-17                 only data from that day on (local time)
+  python backtest.py --since "2026-11-17 20:31" --until 2026-11-24
+
+--since / --until are for out-of-sample checks: pick settings on one stretch of data, then
+run them unchanged on a later stretch they never saw. The z window needs --window minutes of
+data after --since before the first signal, so a 720-minute window starts trading 12 hours in.
 """
 import argparse
 import math
@@ -226,6 +232,22 @@ def print_sweep(bars, args, windows=(60, 240, 720, 1440), entries=(1.5, 2.0, 2.5
 LOCAL_TZ = "America/New_York"
 
 
+def parse_local(text):
+    """'2026-11-17' or '2026-11-17 20:31' in New York time -> UTC Timestamp. None stays None."""
+    if text is None:
+        return None
+    return pd.Timestamp(text).tz_localize(LOCAL_TZ).tz_convert("UTC")
+
+
+def window_bars(bars, since=None, until=None):
+    """Keep bars with since <= time < until (either may be None)."""
+    if since is not None:
+        bars = bars[bars.index >= since]
+    if until is not None:
+        bars = bars[bars.index < until]
+    return bars
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="z-score rotation backtest on one pegged pool.")
     ap.add_argument("snapshot", nargs="?", default=config.SNAPSHOT_PATH)
@@ -241,9 +263,14 @@ def main(argv=None):
     ap.add_argument("--max-hold", type=int, default=config.BT_MAX_HOLD_MIN)
     ap.add_argument("--trades", type=int, default=15, help="how many recent trades to list")
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--since", help="start, local time: 2026-11-17 or '2026-11-17 20:31'")
+    ap.add_argument("--until", help="end (not included), local time")
     args = ap.parse_args(argv)
 
-    bars = load.load_pool(args.snapshot, args.pair, args.pool)
+    since, until = parse_local(args.since), parse_local(args.until)
+    bars = window_bars(load.load_pool(args.snapshot, args.pair, args.pool), since, until)
+    if since is not None or until is not None:
+        print(f"window: {args.since or 'start'} -> {args.until or 'end'} (local time)")
     if bars["bid"].notna().sum() == 0:
         pools = load.pools_for(args.snapshot, args.pair)
         print(f"no quotes for {args.pair} on {args.pool}. Pools recorded: {', '.join(pools) or 'none'}")

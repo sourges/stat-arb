@@ -85,3 +85,38 @@ def adf_pvalue(s):
     if x.std() == 0:
         raise ValueError("series never changes")
     return float(adfuller(x.to_numpy(dtype=float), autolag="AIC", result_object=False)[1])
+
+
+def hedge_ratio(log_a, log_b):
+    """Least-squares fit  ln A = alpha + beta * ln B.  Returns (alpha, beta).
+
+    beta answers: when B moves 1%, how many % does A usually move? The spread
+    ln A - beta * ln B - alpha then strips out the part of A that just follows B.
+    Only times where both series have a value are used.
+    """
+    df = pd.concat([pd.Series(log_a), pd.Series(log_b)], axis=1, join="inner").dropna()
+    if len(df) < 3:
+        raise ValueError("need at least 3 points where both prices exist")
+    x = df.iloc[:, 1].to_numpy(dtype=float)
+    y = df.iloc[:, 0].to_numpy(dtype=float)
+    if np.ptp(x) == 0:
+        raise ValueError("B never changes, so beta can't be estimated")
+    design = np.column_stack([np.ones_like(x), x])
+    (alpha, beta), *_ = np.linalg.lstsq(design, y, rcond=None)
+    return float(alpha), float(beta)
+
+
+def coint_pvalue(log_a, log_b):
+    """Engle-Granger cointegration test p-value (statsmodels.coint).
+
+    Same question as adf_pvalue ("does the spread keep coming back?"), but for a spread
+    whose beta was ESTIMATED from the same data. Fitting beta makes the spread look calmer
+    than it really is, so a plain ADF on it would say "reverts" too easily; coint uses
+    stricter critical values for exactly that. Small p (< 0.05) = cointegrated.
+    """
+    from statsmodels.tsa.stattools import coint   # slow import, only when needed
+
+    df = pd.concat([pd.Series(log_a), pd.Series(log_b)], axis=1, join="inner").dropna()
+    if len(df) < 20:
+        raise ValueError("need at least 20 points where both prices exist")
+    return float(coint(df.iloc[:, 0].to_numpy(float), df.iloc[:, 1].to_numpy(float), trend="c")[1])

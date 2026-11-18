@@ -13,7 +13,7 @@ never the live database, and opens them read-only.
 py -3.14 -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-python -m unittest            (expect: Ran 47 tests ... OK)
+python -m unittest            (expect: Ran 72 tests ... OK)
 ```
 
 ## Getting data
@@ -61,6 +61,7 @@ python backtest.py --window 720 --entry 2.5       other settings
 python backtest.py --pool univ3-100               another pool
 python backtest.py --size 1000                    trades the $1,000 depth quotes (from Nov 14, 2026)
 python backtest.py --sweep                        windows 60/240/720/1440 x entries 1.5/2/2.5/3
+python backtest.py --since 2026-11-17             only data from then on (New York time); --until too
 ```
 
 - **cheap book** (holds USDC): buys USDT at the ask when z < -entry, sells at the bid when z is back to -exit.
@@ -71,15 +72,38 @@ python backtest.py --sweep                        windows 60/240/720/1440 x entr
 - Results are in bp of `--size` per book. One week of one pool: a good number means "test it
   again on next week's data", not "trade it". `--sweep` picks look better than they are.
 
+## Kraken pairs (ETH vs BTC)
+
+stat-arb's own history, in `candles.sqlite` (git-ignored). Fetched on the main PC:
+
+```
+python fetch.py                     ETHXBT, XBTUSD, ETHUSD x hourly, 4-hour, daily (config.FETCH_*)
+python fetch.py --list              what's stored
+python fetch.py --import ETHXBT_60.csv --pair ETHXBT --interval 60
+                                    one of Kraken's full-history CSV files (optional, big download)
+python pairs.py                     ETHUSD vs XBTUSD, daily
+python pairs.py --interval 60 --window 168      hourly, z over the last week
+```
+
+- Kraken's free API returns only the newest 720 candles: daily ~2 years, 4-hour ~120 days,
+  hourly ~30 days. Re-running `fetch.py` adds what finished since, so run it at least monthly
+  to keep growing the hourly history. The candle still forming is never stored.
+- `pairs.py` shows the spread two ways: the plain ratio (beta 1, i.e. the ETHXBT market: one
+  order each way) and the hedged spread (beta fitted by least squares, tested with Engle-Granger
+  cointegration; 4 orders per round trip if beta isn't 1). It compares a typical stretch
+  (2 x recent std) with your maker round trip. beta is fitted on all the data (hindsight).
+
 ## Files
 
 - `load.py` opens a snapshot read-only; best bid/ask across pools per minute; one pool's own quotes (`load_pool`); 1-minute grid (missed minutes = NaN)
-- `stats.py` log spread, rolling z-score (against the window *before* each value), half-life, ADF test
+- `stats.py` log spread, rolling z-score (against the window *before* each value), half-life, ADF test, hedge ratio, cointegration test
 - `analyze.py` the report
-- `backtest.py` z-score rotation on one pool, real bid/ask, gas, delay, max hold, sweep
+- `backtest.py` z-score rotation on one pool, real bid/ask, gas, delay, max hold, sweep, --since/--until
+- `kraken.py` Kraken OHLC API + CSV reader; `candles.py` candles.sqlite; `fetch.py` the fetch command
+- `pairs.py` two-price pair report (hedge ratio, cointegration, half-life, stretch vs fees)
 - `config.py` snapshot path, z window, thresholds. Edit on the main PC and push.
 
 ## Not included yet
 
-Kraken/Coinbase candle history (BTC/ETH, staked ETH),
-Engle-Granger hedge ratio for two-price pairs.
+Coinbase candle history; a backtest for two-price pairs (beta refitted as it goes, Kraken fees);
+staked-ETH pairs.
