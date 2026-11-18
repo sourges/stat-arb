@@ -65,3 +65,40 @@ def minute_series(df, pair, col="mid_bp"):
     if s.empty:
         return s
     return s.resample("1min").last()
+
+
+def load_pool(path, pair, pool, since_ts=None):
+    """ONE pool's own quotes on a regular 1-minute UTC grid, for the backtest.
+
+    Columns: bid, ask (at $100), depth_usd, depth_bid, depth_ask (at the bigger size;
+    NaN before arb-scanner started logging depth on Nov 14, 2026, or when the pool
+    couldn't fill it), mid_bp = ((bid + ask) / 2 - 1) * 10,000.
+    Minutes the pool has no row become all-NaN rows, so one step is always one minute.
+    """
+    conn = connect_snapshot(path)
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(pegged_quotes)")}
+        depth = "depth_usd, depth_bid, depth_ask" if "depth_bid" in cols else \
+                "NULL AS depth_usd, NULL AS depth_bid, NULL AS depth_ask"
+        df = pd.read_sql(f"SELECT ts, bid, ask, {depth} FROM pegged_quotes"
+                         " WHERE pair = ? AND pool = ? AND ts >= ? ORDER BY ts",
+                         conn, params=(pair, pool, since_ts or 0))
+    finally:
+        conn.close()
+    cols = ["bid", "ask", "depth_usd", "depth_bid", "depth_ask", "mid_bp"]
+    if df.empty:
+        return pd.DataFrame(columns=cols, dtype=float)
+    df = df.astype({c: float for c in cols if c != "mid_bp"})
+    df["mid_bp"] = ((df["bid"] + df["ask"]) / 2 - 1.0) * 1e4
+    df.index = pd.to_datetime(df.pop("ts"), unit="s", utc=True)
+    return df.resample("1min").last()[cols]
+
+
+def pools_for(path, pair):
+    """Pool labels recorded for a pair, most rows first."""
+    conn = connect_snapshot(path)
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT pool FROM pegged_quotes WHERE pair = ? GROUP BY pool ORDER BY COUNT(*) DESC", (pair,))]
+    finally:
+        conn.close()
